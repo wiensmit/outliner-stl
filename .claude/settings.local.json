@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"import trimesh, matplotlib, shapely; print\\('trimesh', trimesh.__version__\\)\")",
+      "Bash(grep -oE '\"content\":\"[^\"]{15,500}\"' C:/Users/wiens/.claude/projects/C--Users-wiens-outliner/a068c7ba-156d-4b84-b30d-e522a77e93b5.jsonl)"
+    ]
+  }
+}
