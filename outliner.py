@@ -8,7 +8,7 @@ import numpy as np
 import trimesh
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
-from matplotlib.patches import PathPatch
+from matplotlib.patches import Circle, PathPatch, Rectangle
 from matplotlib.path import Path as MplPath
 from shapely.geometry import Polygon as ShPoly
 from shapely.validation import make_valid
@@ -29,6 +29,13 @@ class App:
         self.loops: list[np.ndarray] = []
         self.depths: list[int] = []
         self.has_child: list[bool] = []
+
+        self.shape_center: tuple[float, float] | None = None
+        self._shape_patch = None
+        self._dragging = False
+        self._drag_offset = (0.0, 0.0)
+        self._view_bounds: tuple[float, float, float, float] | None = None
+        self._last_axis: int | None = None
 
         row1 = ttk.Frame(root, padding=(8, 8, 8, 2))
         row1.pack(side="top", fill="x")
@@ -75,6 +82,45 @@ class App:
             side="left", padx=8
         )
 
+        row3 = ttk.Frame(root, padding=(8, 2, 8, 6))
+        row3.pack(side="top", fill="x")
+
+        ttk.Label(row3, text="Shape:").pack(side="left")
+        self.shape_var = tk.StringVar(value="none")
+        self.shape_combo = ttk.Combobox(
+            row3, textvariable=self.shape_var, width=8, state="readonly",
+            values=["none", "circle", "square"],
+        )
+        self.shape_combo.pack(side="left", padx=(4, 12))
+        self.shape_combo.bind("<<ComboboxSelected>>", lambda _e: self._on_shape_change())
+
+        ttk.Label(row3, text="Size:").pack(side="left")
+        self.size_var = tk.DoubleVar(value=10.0)
+        self.size_scale = ttk.Scale(
+            row3, from_=0.1, to=100.0, orient="horizontal",
+            variable=self.size_var, command=lambda _v: self._on_size_change(),
+        )
+        self.size_scale.pack(side="left", fill="x", expand=True, padx=4)
+
+        self.size_entry = ttk.Entry(row3, width=8)
+        self.size_entry.insert(0, "10.0")
+        self.size_entry.pack(side="left", padx=4)
+        self.size_entry.bind("<Return>", lambda _e: self._on_size_entry())
+
+        ttk.Label(row3, text="X:").pack(side="left", padx=(12, 0))
+        self.pos_x_entry = ttk.Entry(row3, width=9)
+        self.pos_x_entry.pack(side="left", padx=4)
+        self.pos_x_entry.bind("<Return>", lambda _e: self._on_pos_entry())
+
+        ttk.Label(row3, text="Y:").pack(side="left")
+        self.pos_y_entry = ttk.Entry(row3, width=9)
+        self.pos_y_entry.pack(side="left", padx=4)
+        self.pos_y_entry.bind("<Return>", lambda _e: self._on_pos_entry())
+
+        ttk.Button(row3, text="Center shape", command=self._center_shape).pack(
+            side="left", padx=8
+        )
+
         self.bounds_label = ttk.Label(root, text="", anchor="w", padding=(8, 0))
         self.bounds_label.pack(side="top", fill="x")
 
@@ -87,6 +133,10 @@ class App:
         self.ax.set_aspect("equal")
         self.canvas = FigureCanvasTkAgg(self.fig, master=root)
         self.canvas.get_tk_widget().pack(side="top", fill="both", expand=True)
+
+        self.canvas.mpl_connect("button_press_event", self._on_press)
+        self.canvas.mpl_connect("motion_notify_event", self._on_motion)
+        self.canvas.mpl_connect("button_release_event", self._on_release)
 
     # ------------------------------------------------------------------
 
@@ -108,6 +158,8 @@ class App:
 
         self.mesh = mesh
         self.stl_path = Path(path)
+        self.shape_center = None
+        self._last_axis = None
 
         extents = mesh.extents  # length along X, Y, Z
         bmin, bmax = mesh.bounds
@@ -166,12 +218,24 @@ class App:
             return
 
         axis = self._resolve_axis()
+        if self._last_axis is not None and self._last_axis != axis:
+            # 2D frame changes with the slicing axis — previous shape
+            # position no longer has meaning in the new frame.
+            self.shape_center = None
+        self._last_axis = axis
+
         self._axis_name = "XYZ"[axis]
         bmin, bmax = self.mesh.bounds
         self._axis_lo, self._axis_hi = float(bmin[axis]), float(bmax[axis])
         coord = self._axis_lo + float(self.pos_var.get()) * (self._axis_hi - self._axis_lo)
         self._coord = coord
         self.coord_var.set(f"{coord:.4f}")
+
+        other_axes = [i for i in range(3) if i != axis]
+        self._view_bounds = (
+            float(bmin[other_axes[0]]), float(bmin[other_axes[1]]),
+            float(bmax[other_axes[0]]), float(bmax[other_axes[1]]),
+        )
 
         normal = [0, 0, 0]
         normal[axis] = 1
@@ -180,26 +244,13 @@ class App:
 
         section = self.mesh.section(plane_origin=origin, plane_normal=normal)
 
-        if section is None:
-            self.section_2d = None
-            self.loops = []
-            self.depths = []
-            self.has_child = []
-            self.ax.clear()
-            self.ax.set_aspect("equal")
-            self.ax.grid(True, linestyle=":", alpha=0.4)
-            self.status.config(
-                text=f"No intersection at {self._axis_name}={coord:.4f} "
-                     f"(bounds {self._axis_lo:.4f} .. {self._axis_hi:.4f}). "
-                     f"Move slider inward."
-            )
-            self.canvas.draw()
-            return
-
-        planar, _ = section.to_2D()
-        self.section_2d = planar
-
-        self.loops = [np.asarray(l) for l in planar.discrete if len(l) >= 3]
+        self.section_2d = section
+        self.loops = []
+        if section is not None:
+            for loop3d in section.discrete:
+                arr = np.asarray(loop3d)
+                if len(arr) >= 3:
+                    self.loops.append(arr[:, other_axes])
         self.depths, self.has_child = self._classify(self.loops)
         self._redraw()
 
@@ -248,13 +299,11 @@ class App:
         return list(range(len(self.loops)))
 
     def _redraw(self) -> None:
+        if self.mesh is None:
+            return
         self.ax.clear()
         self.ax.set_aspect("equal")
         self.ax.grid(True, linestyle=":", alpha=0.4)
-
-        if not self.loops:
-            self.canvas.draw()
-            return
 
         selected = set(self._selected_indices())
         for i, loop in enumerate(self.loops):
@@ -265,21 +314,172 @@ class App:
                 self.ax.plot(loop[:, 0], loop[:, 1],
                              color="#888", linewidth=0.8, alpha=0.6)
 
-        all_pts = np.concatenate(self.loops, axis=0)
-        pad = 0.02 * max(np.ptp(all_pts[:, 0]), np.ptp(all_pts[:, 1]), 1e-6)
-        self.ax.set_xlim(all_pts[:, 0].min() - pad, all_pts[:, 0].max() + pad)
-        self.ax.set_ylim(all_pts[:, 1].min() - pad, all_pts[:, 1].max() + pad)
+        self._apply_view_limits()
+        self._configure_size_scale()
+        self._shape_patch = None
+        self._draw_shape()
 
-        self.ax.set_title(
-            f"Slice at {self._axis_name}={self._coord:.4f}  "
-            f"(bounds {self._axis_lo:.4f} .. {self._axis_hi:.4f})"
-        )
-        self.status.config(
-            text=f"Axis {self._axis_name}  |  slice at {self._coord:.4f}  |  "
-                 f"loops: {len(self.loops)}  |  selected ({self.filter_var.get()}): "
-                 f"{len(selected)}  |  ready to save."
-        )
+        if self.loops:
+            self.ax.set_title(
+                f"Slice at {self._axis_name}={self._coord:.4f}  "
+                f"(bounds {self._axis_lo:.4f} .. {self._axis_hi:.4f})"
+            )
+            self.status.config(
+                text=f"Axis {self._axis_name}  |  slice at {self._coord:.4f}  |  "
+                     f"loops: {len(self.loops)}  |  selected ({self.filter_var.get()}): "
+                     f"{len(selected)}  |  ready to save."
+            )
+        else:
+            self.ax.set_title(
+                f"Slice at {self._axis_name}={self._coord:.4f}  (no intersection)"
+            )
+            self.status.config(
+                text=f"No intersection at {self._axis_name}={self._coord:.4f} "
+                     f"(bounds {self._axis_lo:.4f} .. {self._axis_hi:.4f})."
+            )
         self.canvas.draw()
+
+    def _apply_view_limits(self) -> None:
+        if self._view_bounds is None:
+            return
+        minx, miny, maxx, maxy = self._view_bounds
+        pad = 0.02 * max(maxx - minx, maxy - miny, 1e-6)
+        self.ax.set_xlim(minx - pad, maxx + pad)
+        self.ax.set_ylim(miny - pad, maxy + pad)
+
+    # ------------------------------------------------------------------
+
+    def _configure_size_scale(self) -> None:
+        if self._view_bounds is None:
+            return
+        minx, miny, maxx, maxy = self._view_bounds
+        span = float(max(maxx - minx, maxy - miny, 1.0))
+        self.size_scale.configure(from_=span * 0.01, to=span)
+        if self.size_var.get() > span or self.size_var.get() < span * 0.005:
+            self.size_var.set(span * 0.1)
+            self._sync_size_entry()
+
+    def _sync_size_entry(self) -> None:
+        self.size_entry.delete(0, "end")
+        self.size_entry.insert(0, f"{self.size_var.get():.3f}")
+
+    def _sync_pos_entries(self) -> None:
+        self.pos_x_entry.delete(0, "end")
+        self.pos_y_entry.delete(0, "end")
+        if self.shape_center is not None:
+            self.pos_x_entry.insert(0, f"{self.shape_center[0]:.3f}")
+            self.pos_y_entry.insert(0, f"{self.shape_center[1]:.3f}")
+
+    def _on_pos_entry(self) -> None:
+        try:
+            x = float(self.pos_x_entry.get())
+            y = float(self.pos_y_entry.get())
+        except ValueError:
+            return
+        self.shape_center = (x, y)
+        if self.shape_var.get() == "none":
+            self.shape_var.set("circle")
+            self._draw_shape()
+        else:
+            self._update_shape_patch()
+        self.canvas.draw_idle()
+
+    def _on_size_entry(self) -> None:
+        try:
+            v = float(self.size_entry.get())
+        except ValueError:
+            return
+        if v <= 0:
+            return
+        self.size_var.set(v)
+        self._update_shape_patch()
+        self.canvas.draw_idle()
+
+    def _on_size_change(self) -> None:
+        self._sync_size_entry()
+        self._update_shape_patch()
+        self.canvas.draw_idle()
+
+    def _on_shape_change(self) -> None:
+        if self.shape_var.get() != "none" and self.shape_center is None:
+            self._center_shape(redraw=False)
+        self._sync_pos_entries()
+        self._draw_shape()
+        self.canvas.draw_idle()
+
+    def _center_shape(self, redraw: bool = True) -> None:
+        if self._view_bounds is None:
+            return
+        minx, miny, maxx, maxy = self._view_bounds
+        self.shape_center = (0.5 * (minx + maxx), 0.5 * (miny + maxy))
+        self._sync_pos_entries()
+        if redraw:
+            self._draw_shape()
+            self.canvas.draw_idle()
+
+    def _draw_shape(self) -> None:
+        if self._shape_patch is not None:
+            try:
+                self._shape_patch.remove()
+            except Exception:
+                pass
+            self._shape_patch = None
+        kind = self.shape_var.get()
+        if kind == "none" or self.shape_center is None:
+            return
+        size = float(self.size_var.get())
+        cx, cy = self.shape_center
+        if kind == "circle":
+            patch = Circle((cx, cy), size / 2.0, fill=False,
+                           edgecolor="#2980b9", linewidth=1.8)
+        else:  # square
+            patch = Rectangle((cx - size / 2.0, cy - size / 2.0), size, size,
+                              fill=False, edgecolor="#2980b9", linewidth=1.8)
+        self.ax.add_patch(patch)
+        self._shape_patch = patch
+
+    def _update_shape_patch(self) -> None:
+        if self._shape_patch is None or self.shape_center is None:
+            return
+        size = float(self.size_var.get())
+        cx, cy = self.shape_center
+        if isinstance(self._shape_patch, Circle):
+            self._shape_patch.center = (cx, cy)
+            self._shape_patch.set_radius(size / 2.0)
+        else:
+            self._shape_patch.set_xy((cx - size / 2.0, cy - size / 2.0))
+            self._shape_patch.set_width(size)
+            self._shape_patch.set_height(size)
+
+    def _on_press(self, event) -> None:
+        if event.inaxes != self.ax or self._shape_patch is None:
+            return
+        if event.button != 1 or event.xdata is None:
+            return
+        contains, _ = self._shape_patch.contains(event)
+        if not contains or self.shape_center is None:
+            return
+        self._dragging = True
+        self._drag_offset = (
+            event.xdata - self.shape_center[0],
+            event.ydata - self.shape_center[1],
+        )
+
+    def _on_motion(self, event) -> None:
+        if not self._dragging or event.inaxes != self.ax:
+            return
+        if event.xdata is None or event.ydata is None:
+            return
+        self.shape_center = (
+            float(event.xdata - self._drag_offset[0]),
+            float(event.ydata - self._drag_offset[1]),
+        )
+        self._update_shape_patch()
+        self._sync_pos_entries()
+        self.canvas.draw_idle()
+
+    def _on_release(self, _event) -> None:
+        self._dragging = False
 
     # ------------------------------------------------------------------
 
@@ -302,9 +502,14 @@ class App:
             return
 
         chosen = [self.loops[i] for i in selected]
-        all_pts = np.concatenate(chosen, axis=0)
-        minx, miny = all_pts.min(axis=0)
-        maxx, maxy = all_pts.max(axis=0)
+        if self._view_bounds is not None:
+            minx, miny, maxx, maxy = self._view_bounds
+        else:
+            all_pts = np.concatenate(chosen, axis=0)
+            minx, miny = all_pts.min(axis=0)
+            maxx, maxy = all_pts.max(axis=0)
+
+        shape_kind = self.shape_var.get()
         w, h = float(maxx - minx), float(maxy - miny)
 
         path_els = []
@@ -317,6 +522,26 @@ class App:
                 f'  <path d="{d}" fill="none" stroke="black" '
                 f'stroke-width="0.25"/>'
             )
+
+        if shape_kind != "none" and self.shape_center is not None:
+            cx, cy = self.shape_center
+            s = float(self.size_var.get())
+            svg_cx = cx - minx
+            svg_cy = maxy - cy
+            if shape_kind == "circle":
+                path_els.append(
+                    f'  <circle cx="{svg_cx:.4f}" cy="{svg_cy:.4f}" '
+                    f'r="{s / 2.0:.4f}" fill="none" stroke="black" '
+                    f'stroke-width="0.25"/>'
+                )
+            else:  # square
+                path_els.append(
+                    f'  <rect x="{svg_cx - s / 2.0:.4f}" '
+                    f'y="{svg_cy - s / 2.0:.4f}" '
+                    f'width="{s:.4f}" height="{s:.4f}" '
+                    f'fill="none" stroke="black" stroke-width="0.25"/>'
+                )
+
         svg = (
             f'<svg xmlns="http://www.w3.org/2000/svg" '
             f'viewBox="0 0 {w:.4f} {h:.4f}" '
