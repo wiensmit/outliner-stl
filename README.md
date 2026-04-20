@@ -30,7 +30,8 @@ Grab the latest build for your platform from the
 
 - **Windows:** `Outliner.exe` — double-click to run.
 - **macOS (Apple Silicon):** `Outliner-macos-arm64.zip` — unzip and run `Outliner.app`.
-- **macOS (Intel):** `Outliner-macos-x86_64.zip` — unzip and run `Outliner.app`.
+
+Intel Macs aren't built automatically — run from source (Option 2) on those.
 
 No Python, no dependencies, nothing to install.
 

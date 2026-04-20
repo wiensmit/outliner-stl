@@ -36,15 +36,7 @@ jobs:
           path: dist/Outliner.exe
 
   build-macos:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: macos-latest
-            arch: arm64
-          - runner: macos-13
-            arch: x86_64
-    runs-on: ${{ matrix.runner }}
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -66,12 +58,12 @@ jobs:
       - name: Zip .app for release
         run: |
           cd dist
-          zip -r Outliner-macos-${{ matrix.arch }}.zip Outliner.app
+          zip -r Outliner-macos-arm64.zip Outliner.app
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Outliner-macos-${{ matrix.arch }}
-          path: dist/Outliner-macos-${{ matrix.arch }}.zip
+          name: Outliner-macos-arm64
+          path: dist/Outliner-macos-arm64.zip
 
   release:
     needs: [build-windows, build-macos]
@@ -87,5 +79,4 @@ jobs:
           files: |
             artifacts/Outliner-windows/Outliner.exe
             artifacts/Outliner-macos-arm64/Outliner-macos-arm64.zip
-            artifacts/Outliner-macos-x86_64/Outliner-macos-x86_64.zip
           generate_release_notes: true
