@@ -6,6 +6,8 @@ Load an STL, pick a slicing axis and position, preview the cross-section, and
 export the outlines to an SVG ready for laser cutters, plotters, CAD import,
 or illustration work.
 
+![Outliner STL screenshot](screenshot.png)
+
 ## Features
 
 - Open any binary or ASCII STL file.
