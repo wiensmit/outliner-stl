@@ -32,8 +32,10 @@ Grab the latest build for your platform from the
 
 - **Windows:** `Outliner.exe` — double-click to run.
 - **macOS (Apple Silicon):** `Outliner-macos-arm64.zip` — unzip and run `Outliner.app`.
-
-Intel Macs aren't built automatically — run from source (Option 2) on those.
+- **macOS (Intel):** `Outliner-macos-x86_64.zip` — unzip and run `Outliner.app`.
+  Built a few minutes after the rest of the release lands.
+- **Linux:** `Outliner` — `chmod +x Outliner && ./Outliner`.
+  Built on Ubuntu 22.04 (glibc 2.35); older distros may need to run from source.
 
 No Python, no dependencies, nothing to install.
 
@@ -96,5 +98,5 @@ outliner.py                   # the whole app
 launch.bat                    # Windows shortcut for running from source
 requirements.txt              # Python dependencies
 Outliner.spec                 # PyInstaller build spec
-.github/workflows/build.yml   # CI for Windows + macOS release builds
+.github/workflows/           # CI: Windows, Linux, macOS arm64 + Intel builds
 ```
