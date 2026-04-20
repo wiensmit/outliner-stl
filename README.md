@@ -23,10 +23,19 @@ or illustration work.
 
 ## Install
 
-### Option 1 — Prebuilt Windows executable
+### Option 1 — Prebuilt binary
 
-Grab `dist/Outliner.exe` and double-click. No Python, no dependencies,
-nothing to install. Copy it anywhere you like.
+Grab the latest build for your platform from the
+[Releases page](https://github.com/wiensmit/outliner-stl/releases/latest):
+
+- **Windows:** `Outliner.exe` — double-click to run.
+- **macOS (Apple Silicon):** `Outliner-macos-arm64.zip` — unzip and run `Outliner.app`.
+- **macOS (Intel):** `Outliner-macos-x86_64.zip` — unzip and run `Outliner.app`.
+
+No Python, no dependencies, nothing to install.
+
+> On macOS the `.app` is unsigned. First launch: right-click →
+> **Open** → **Open** to bypass Gatekeeper.
 
 ### Option 2 — Run from source
 
@@ -80,9 +89,9 @@ Under the hood:
 ## Layout
 
 ```
-outliner.py        # the whole app
-launch.bat         # Windows shortcut for running from source
-requirements.txt   # Python dependencies
-Outliner.spec      # PyInstaller build spec
-dist/Outliner.exe  # prebuilt standalone Windows binary
+outliner.py                   # the whole app
+launch.bat                    # Windows shortcut for running from source
+requirements.txt              # Python dependencies
+Outliner.spec                 # PyInstaller build spec
+.github/workflows/build.yml   # CI for Windows + macOS release builds
 ```
