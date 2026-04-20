@@ -1,5 +1,6 @@
 trimesh>=4.0
 numpy
+scipy
 shapely
 matplotlib
 networkx
