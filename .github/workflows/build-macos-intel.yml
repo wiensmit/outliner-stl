@@ -1,8 +1,9 @@
 name: Build macOS Intel
 
 on:
-  release:
-    types: [published]
+  workflow_run:
+    workflows: ["Build and Release"]
+    types: [completed]
   workflow_dispatch:
     inputs:
       tag:
@@ -15,10 +16,15 @@ permissions:
 jobs:
   build-macos-intel:
     runs-on: macos-13
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       startsWith(github.event.workflow_run.head_branch, 'v'))
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.release.tag_name || inputs.tag }}
+          ref: ${{ inputs.tag || github.event.workflow_run.head_branch }}
 
       - uses: actions/setup-python@v5
         with:
@@ -43,5 +49,5 @@ jobs:
       - name: Upload to release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          TAG: ${{ inputs.tag || github.event.workflow_run.head_branch }}
         run: gh release upload "$TAG" dist/Outliner-macos-x86_64.zip --clobber
